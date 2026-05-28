@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-# --- Stato conversazione per utente ---
 conversation_history = {}
 
 SYSTEM_PROMPT = """Sei un assistente per la gestione del sito web dello Studio Odontoiatrico Crisciani.
@@ -45,21 +44,18 @@ Se l'utente vuole vedere le pagine disponibili, rispondi con:
 {"action": "list_pages"}
 """
 
+def sanitize(text):
+    return text.replace("*", "").replace("_", "").replace("`", "").replace("[", "").replace("]", "")
+
 def wp_create_post(title, content, status="publish"):
-    """Crea un nuovo post su WordPress."""
     url = f"{WP_URL}/wp-json/wp/v2/posts"
     auth = (WP_USER, WP_APP_PASSWORD)
-    data = {
-        "title": title,
-        "content": content,
-        "status": status,
-    }
+    data = {"title": title, "content": content, "status": status}
     response = requests.post(url, json=data, auth=auth)
     response.raise_for_status()
     return response.json()
 
 def wp_update_page(page_id, content):
-    """Aggiorna il contenuto di una pagina WordPress."""
     url = f"{WP_URL}/wp-json/wp/v2/pages/{page_id}"
     auth = (WP_USER, WP_APP_PASSWORD)
     data = {"content": content}
@@ -68,7 +64,6 @@ def wp_update_page(page_id, content):
     return response.json()
 
 def wp_list_pages():
-    """Lista le pagine disponibili su WordPress."""
     url = f"{WP_URL}/wp-json/wp/v2/pages?per_page=20"
     auth = (WP_USER, WP_APP_PASSWORD)
     response = requests.get(url, auth=auth)
@@ -77,10 +72,8 @@ def wp_list_pages():
     return [(p["id"], p["title"]["rendered"]) for p in pages]
 
 def parse_and_execute(text):
-    """Prova a interpretare la risposta dell'AI come un'azione WordPress."""
     import json
     try:
-        # Cerca JSON nella risposta
         start = text.find("{")
         end = text.rfind("}") + 1
         if start == -1:
@@ -92,44 +85,44 @@ def parse_and_execute(text):
         if action["action"] == "create_post":
             result = wp_create_post(action["title"], action["content"], action.get("status", "publish"))
             link = result.get("link", "")
-            status = "pubblicato" if action.get("status") == "publish" else "salvato come bozza"
-            return True, f"✅ Articolo *{action['title']}* {status} con successo!\n🔗 {link}"
+            status = "pubblicato" if action.get("status", "publish") == "publish" else "salvato come bozza"
+            return True, f"Articolo '{action['title']}' {status} con successo!\n{link}"
 
         elif action["action"] == "update_page":
             wp_update_page(action["page_id"], action["content"])
-            return True, f"✅ Pagina aggiornata con successo!"
+            return True, "Pagina aggiornata con successo!"
 
         elif action["action"] == "list_pages":
             pages = wp_list_pages()
-            lines = [f"• `{pid}` — {title}" for pid, title in pages]
-            return True, "📄 *Pagine disponibili:*\n" + "\n".join(lines)
+            lines = [f"- ID {pid}: {title}" for pid, title in pages]
+            return True, "Pagine disponibili:\n" + "\n".join(lines)
 
     except json.JSONDecodeError:
         pass
     except Exception as e:
-        return False, f"❌ Errore durante l'esecuzione: {str(e)}"
+        return False, f"Errore durante l'esecuzione: {str(e)}"
 
     return None, text
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if ALLOWED_USER_ID and user_id != ALLOWED_USER_ID:
-        await update.message.reply_text("⛔ Non sei autorizzato ad usare questo bot.")
+        await update.message.reply_text("Non sei autorizzato ad usare questo bot.")
         return
     conversation_history[user_id] = []
     await update.message.reply_text(
-        "👋 Ciao! Sono il tuo assistente per il sito dello Studio Crisciani.\n\n"
+        "Ciao! Sono il tuo assistente per il sito dello Studio Crisciani.\n\n"
         "Puoi chiedermi di:\n"
-        "• Scrivere e pubblicare articoli del blog\n"
-        "• Aggiornare il contenuto delle pagine\n"
-        "• Mostrare le pagine disponibili\n\n"
+        "- Scrivere e pubblicare articoli del blog\n"
+        "- Aggiornare il contenuto delle pagine\n"
+        "- Mostrare le pagine disponibili\n\n"
         "Come posso aiutarti?"
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if ALLOWED_USER_ID and user_id != ALLOWED_USER_ID:
-        await update.message.reply_text("⛔ Non sei autorizzato.")
+        await update.message.reply_text("Non sei autorizzato.")
         return
 
     user_text = update.message.text
@@ -139,11 +132,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conversation_history[user_id].append({"role": "user", "content": user_text})
 
-    # Limita la storia a 20 messaggi
     if len(conversation_history[user_id]) > 20:
         conversation_history[user_id] = conversation_history[user_id][-20:]
 
-    await update.message.reply_text("⏳ Sto elaborando...")
+    await update.message.reply_text("Sto elaborando...")
 
     try:
         response = client.messages.create(
@@ -157,25 +149,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conversation_history[user_id].append({"role": "assistant", "content": ai_text})
 
         executed, reply = parse_and_execute(ai_text)
+        reply = sanitize(reply)
 
-        # Telegram ha un limite di 4096 caratteri per messaggio
         MAX_LENGTH = 4000
         if len(reply) <= MAX_LENGTH:
             await update.message.reply_text(reply)
         else:
-            # Spezza il messaggio in chunks
             chunks = [reply[i:i+MAX_LENGTH] for i in range(0, len(reply), MAX_LENGTH)]
             for chunk in chunks:
                 await update.message.reply_text(chunk)
 
     except Exception as e:
         logger.error(f"Errore: {e}")
-        await update.message.reply_text(f"❌ Errore: {str(e)}")
+        await update.message.reply_text(f"Errore: {str(e)}")
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     conversation_history[user_id] = []
-    await update.message.reply_text("🔄 Conversazione resettata.")
+    await update.message.reply_text("Conversazione resettata.")
 
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
