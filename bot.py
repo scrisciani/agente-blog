@@ -161,12 +161,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Telegram ha un limite di 4096 caratteri per messaggio
         MAX_LENGTH = 4000
         if len(reply) <= MAX_LENGTH:
-            await update.message.reply_text(reply, parse_mode="Markdown")
+            await update.message.reply_text(reply)
         else:
             # Spezza il messaggio in chunks
             chunks = [reply[i:i+MAX_LENGTH] for i in range(0, len(reply), MAX_LENGTH)]
             for chunk in chunks:
-                await update.message.reply_text(chunk, parse_mode="Markdown")
+                await update.message.reply_text(chunk)
 
     except Exception as e:
         logger.error(f"Errore: {e}")
