@@ -87,7 +87,7 @@ def parse_and_execute(text):
         logger.info(f"Action parsata: {action.get('action')}")
 
         # Normalizza varianti dell'action
-        action_name = action.get("action", "").replace("createpost", "create_post").replace("updatepage", "update_page").replace("listpages", "list_pages").replace("list_page", "list_pages")
+        action_name = action.get("action", "").replace("createpost", "create_post").replace("updatepage", "update_page").replace("listpages", "list_pages")
         logger.info(f"Action normalizzata: {action_name}")
 
         if action_name == "create_post":
