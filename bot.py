@@ -73,39 +73,48 @@ def wp_list_pages():
 
 def parse_and_execute(text):
     import json
+    logger.info(f"parse_and_execute ricevuto: {text[:200]}")
     try:
         start = text.find("{")
         end = text.rfind("}") + 1
         if start == -1:
+            logger.info("Nessun JSON trovato nel testo")
             return None, text
 
         json_str = text[start:end]
+        logger.info(f"JSON estratto: {json_str[:200]}")
         action = json.loads(json_str)
+        logger.info(f"Action parsata: {action.get('action')}")
 
         # Normalizza varianti dell'action
-        action["action"] = action["action"].replace("createpost", "create_post").replace("updatepage", "update_page").replace("listpages", "list_pages")
+        action_name = action.get("action", "").replace("createpost", "create_post").replace("updatepage", "update_page").replace("listpages", "list_pages").replace("list_page", "list_pages")
+        logger.info(f"Action normalizzata: {action_name}")
 
-        if action["action"] == "create_post":
+        if action_name == "create_post":
             result = wp_create_post(action["title"], action["content"], action.get("status", "publish"))
             link = result.get("link", "")
             status = "pubblicato" if action.get("status", "publish") == "publish" else "salvato come bozza"
             return True, f"Articolo '{action['title']}' {status} con successo!\n{link}"
 
-        elif action["action"] == "update_page":
+        elif action_name == "update_page":
             wp_update_page(action["page_id"], action["content"])
             return True, "Pagina aggiornata con successo!"
 
-        elif action["action"] == "list_pages":
+        elif action_name == "list_pages":
             pages = wp_list_pages()
             lines = [f"- ID {pid}: {title}" for pid, title in pages]
             return True, "Pagine disponibili:\n" + "\n".join(lines)
 
-    except json.JSONDecodeError:
-        pass
-    except Exception as e:
-        return False, f"Errore durante l'esecuzione: {str(e)}"
+        else:
+            logger.warning(f"Action non riconosciuta: {action_name}")
+            return None, text
 
-    return None, text
+    except json.JSONDecodeError as e:
+        logger.error(f"JSONDecodeError: {e}")
+        return None, text
+    except Exception as e:
+        logger.error(f"Errore parse_and_execute: {e}")
+        return False, f"Errore durante l'esecuzione: {str(e)}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -149,6 +158,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         ai_text = response.content[0].text
+        logger.info(f"Risposta AI: {ai_text[:300]}")
         conversation_history[user_id].append({"role": "assistant", "content": ai_text})
 
         executed, reply = parse_and_execute(ai_text)
@@ -163,7 +173,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(chunk)
 
     except Exception as e:
-        logger.error(f"Errore: {e}")
+        logger.error(f"Errore handle_message: {e}")
         await update.message.reply_text(f"Errore: {str(e)}")
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -178,4 +188,3 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     logger.info("Bot avviato!")
     app.run_polling()
-
