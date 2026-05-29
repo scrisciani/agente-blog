@@ -82,6 +82,9 @@ def parse_and_execute(text):
         json_str = text[start:end]
         action = json.loads(json_str)
 
+        # Normalizza varianti dell'action
+        action["action"] = action["action"].replace("createpost", "create_post").replace("updatepage", "update_page").replace("listpages", "list_pages")
+
         if action["action"] == "create_post":
             result = wp_create_post(action["title"], action["content"], action.get("status", "publish"))
             link = result.get("link", "")
@@ -175,3 +178,4 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     logger.info("Bot avviato!")
     app.run_polling()
+
